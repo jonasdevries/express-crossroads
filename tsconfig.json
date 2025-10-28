@@ -1,5 +1,6 @@
 {
   "extends": "@tsconfig/node22/tsconfig.json",
+  "allowDefaultProject": "",
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./"
