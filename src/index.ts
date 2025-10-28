@@ -1,12 +1,11 @@
+import { health } from "#middleware/health.js";
 // index.ts
 import express from "express";
-const app = express();
-const port = process.env.PORT ?? "9001";
 
-app.get("/", (req, res) => {
-  res.send("Hello World!");
-  console.log("Response sent");
-});
+const app = express();
+const port = process.env.PORT ?? "3000";
+
+app.get("/api/health", health);
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
