@@ -2,6 +2,7 @@ import {errorHandler, notFound} from "#middleware/errors.js";
 import { health } from "#middleware/health.js";
 import { requestLogger } from "#middleware/requestLogger.js";
 import express from "express";
+import assetsRoutes from "#routes/assetsRoutes.js";
 
 const app = express();
 const port = process.env.PORT ?? "3000";
@@ -10,6 +11,7 @@ app.use(express.json());   // 👈 body-parser eerst
 app.use(requestLogger);    // 👈
 
 app.get("/api/health", health);
+app.use("/api/assets", assetsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
