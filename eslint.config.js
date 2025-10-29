@@ -1,5 +1,3 @@
-// @ts-check
-
 import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 import perfectionist from "eslint-plugin-perfectionist";
@@ -20,7 +18,6 @@ export default tseslint.config(
             },
         },
     },
-    perfectionist.configs["recommended-natural"],
     {
         files: ["**/*.test.ts", "**/*.spec.ts"],
         plugins: {
@@ -29,6 +26,9 @@ export default tseslint.config(
         rules: {
             ...vitest.configs.recommended.rules,
             "@typescript-eslint/unbound-method": "off",
-        },
+            'perfectionist/sort-named-imports': 'off',
+            'perfectionist/sort-imports': 'off',
+            'perfectionist/sort-objects': 'off'
+        }
     },
 );

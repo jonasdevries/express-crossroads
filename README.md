@@ -56,7 +56,7 @@ Standaard draait de server op `http://localhost:3000` (pas `PORT` aan via `.env`
 │  ├─ app.ts               # Express app (routes, middleware)
 │  ├─ server.ts            # Bootstrapping (luisteren op poort)
 │  ├─ routes/
-│  │  └─ index.ts          # /api routes (voorbeeld)
+│  │  └─ server.ts          # /api routes (voorbeeld)
 │  ├─ middlewares/
 │  │  ├─ error.ts          # Error handler
 │  │  └─ notFound.ts       # 404 handler
