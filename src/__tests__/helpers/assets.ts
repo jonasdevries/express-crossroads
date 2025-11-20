@@ -54,9 +54,16 @@ export async function createAssetViaApi(
 
     // zonder token → 401 (sanity check)
     await request(app).post(base).send(payload).expect(401);
+    let res = await request(app)
+        .post(base)
+        .set("Authorization", `Bearer ${jwt}`)
+        .send(payload)
+        .expect(201);
+
+    const body = res.body as { data?: { id: number } };
 
     // met token → 201
-    const res = await request(app)
+    res = await request(app)
         .post(base)
         .set("Authorization", `Bearer ${jwt}`)
         .send(payload)
