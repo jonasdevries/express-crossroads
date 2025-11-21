@@ -164,6 +164,15 @@ router.get(
     },
 );
 
+interface AssetPostBody {
+    type?: string;
+    ticker?: string;
+    name?: string;
+    quote_ccy?: string;
+    mic?: string;
+    unique_symbol?: string;
+}
+
 /**
  * 📙 POST /assets
  */
@@ -171,15 +180,13 @@ router.post(
     "/",
     requireAuth,
     async (req: Request<unknown, unknown, AssetPostBody>, res: Response) => {
-        let { type, ticker, name, quote_ccy, mic, unique_symbol } =
-        req.body ?? {};
+        const { type, ticker, name, quote_ccy, mic, unique_symbol } = req.body;
 
         // normaliseer NIET vooraf; eerst raw valideren
         const rawName = typeof name === "string" ? name.trim() : "";
         const rawTicker = typeof ticker === "string" ? ticker.trim() : "";
         const rawMic = typeof mic === "string" ? mic.trim() : "";
-        const rawCcy =
-            typeof quote_ccy === "string" ? quote_ccy.trim() : "";
+        const rawCcy = typeof quote_ccy === "string" ? quote_ccy.trim() : "";
         const rawUsym =
             typeof unique_symbol === "string" ? unique_symbol.trim() : "";
         const rawType = typeof type === "string" ? type.trim() : "";
@@ -206,7 +213,7 @@ router.post(
             });
         }
 
-        if (rawTicker && !/^[A-Z0-9.\-]{1,10}$/.test(rawTicker)) {
+        if (rawTicker && !/^[A-Z0-9.-]{1,10}$/.test(rawTicker)) {
             return res.status(400).json({
                 error:
                     "Validatiefout: ongeldige ticker (max 10, A-Z/0-9/./-)",
@@ -237,16 +244,16 @@ router.post(
         try {
             const sql = dbUsym
                 ? `
-          INSERT INTO public.assets (type, ticker, name, quote_ccy, mic, unique_symbol)
-          VALUES ($1::public.asset_type, $2, $3, $4, $5, $6)
-          ON CONFLICT (unique_symbol) DO NOTHING
-          RETURNING id, type, ticker, name, quote_ccy, mic, unique_symbol
-        `
+                        INSERT INTO public.assets (type, ticker, name, quote_ccy, mic, unique_symbol)
+                        VALUES ($1::public.asset_type, $2, $3, $4, $5, $6)
+                        ON CONFLICT (unique_symbol) DO NOTHING
+                        RETURNING id, type, ticker, name, quote_ccy, mic, unique_symbol
+                `
                 : `
-          INSERT INTO public.assets (type, ticker, name, quote_ccy, mic, unique_symbol)
-          VALUES ($1::public.asset_type, $2, $3, $4, $5, $6)
-          RETURNING id, type, ticker, name, quote_ccy, mic, unique_symbol
-        `;
+                        INSERT INTO public.assets (type, ticker, name, quote_ccy, mic, unique_symbol)
+                        VALUES ($1::public.asset_type, $2, $3, $4, $5, $6)
+                        RETURNING id, type, ticker, name, quote_ccy, mic, unique_symbol
+                `;
 
             const params = [dbType, dbTicker, dbName, dbCcy, dbMic, dbUsym];
 
@@ -277,7 +284,7 @@ router.post(
                 });
             }
 
-            if (err.code === "22P02" && /asset_type/i.test(err.message || "")) {
+            if (err.code === "22P02" && /asset_type/i.test(err.message ?? "")) {
                 const allowedTypes = await getEnumLabels("asset_type");
                 return res.status(400).json({
                     error: "Validatiefout: ongeldige asset type",
@@ -301,10 +308,12 @@ router.post(
                 });
             }
 
-            throw err;
+            const message = err.message ?? "Onbekende fout in POST /assets";
+            throw new Error(message);
         }
     },
 );
+
 
 /**
  * 📕 DELETE /assets/:id

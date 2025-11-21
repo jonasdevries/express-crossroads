@@ -55,6 +55,9 @@ export default tseslint.config(
             // Vitest recommended (expect/it/describe, etc.)
             ...vitest.configs.recommended.rules,
 
+            // volledig uitzetten
+            "vitest/expect-expect": "warn",
+
             // Vitest integratietests met supertest zijn lastig 100% typesafe;
             // hier maken we het wat relaxter:
             "@typescript-eslint/no-explicit-any": "off",

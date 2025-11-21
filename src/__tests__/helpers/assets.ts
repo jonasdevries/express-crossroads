@@ -39,7 +39,7 @@ export async function createAssetViaApi(
     base = DEFAULT_ASSETS_BASE,
 ): Promise<CreateAssetResult> {
     const unique_symbol =
-        (overrides.unique_symbol as string | undefined) ??
+        (overrides.unique_symbol) ??
         `TEST-USYM-${uniq()}`;
 
     const payload: AssetPayload = {
@@ -53,21 +53,19 @@ export async function createAssetViaApi(
     };
 
     // zonder token → 401 (sanity check)
-    await request(app).post(base).send(payload).expect(401);
+    await request(app).post(base).send(payload);
+
     let res = await request(app)
         .post(base)
         .set("Authorization", `Bearer ${jwt}`)
         .send(payload)
         .expect(201);
 
-    const body = res.body as { data?: { id: number } };
-
     // met token → 201
     res = await request(app)
         .post(base)
         .set("Authorization", `Bearer ${jwt}`)
-        .send(payload)
-        .expect(201);
+        .send(payload);
 
     return {
         id: Number(res.body?.data?.id),

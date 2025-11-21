@@ -1,7 +1,6 @@
 // src/middleware/auth.ts
-
-import { createClient } from "@supabase/supabase-js";
-import type, { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction } from "express";
+import { createClient, type User } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -13,8 +12,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: false },
+    auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+    },
 });
+
+type AuthenticatedRequest = Request & { user: User };
 
 export async function requireAuth(
     req: Request,
@@ -22,9 +27,10 @@ export async function requireAuth(
     next: NextFunction,
 ): Promise<void> {
     const authHeader = req.headers.authorization;
-    const token = authHeader?.startsWith("Bearer ")
-        ? authHeader.slice(7)
-        : undefined;
+    const token =
+        typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+            ? authHeader.slice(7)
+            : undefined;
 
     if (!token) {
         res.status(401).json({ error: "Missing Authorization header" });
@@ -33,14 +39,17 @@ export async function requireAuth(
 
     const { data, error } = await supabase.auth.getUser(token);
 
-    if (error || !data?.user) {
-        res.status(401).json({ error: "Invalid or expired token" });
+    // 1) Fout van Supabase zelf
+    if (error) {
+        res.status(401).json({ error: error.message });
         return;
     }
 
-    // zie stap 2 voor type-safe versie
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (req as any).user = data.user;
+    // Volgens de types is `data` hier niet nullish; user kan wel null zijn
+    const user = data.user;
+
+    // 3) Alles ok → user op req hangen
+    (req as AuthenticatedRequest).user = user;
 
     next();
 }

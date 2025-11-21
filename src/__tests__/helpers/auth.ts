@@ -36,8 +36,8 @@ export async function login(): Promise<string> {
         password,
     });
 
-    if (error || !data?.session) {
-        throw new Error(error?.message ?? "Login mislukt (geen session)");
+    if (error) {
+        throw new Error(error.message);
     }
 
     cachedToken = data.session.access_token;
