@@ -1,0 +1,4 @@
+npm run test:run
+npm run type-check
+npx eslint . --ext .js,.ts,.tsx
+npx lint-staged

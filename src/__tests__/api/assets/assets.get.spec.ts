@@ -1,53 +1,48 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
+import request from "supertest";
 import app from "../../../app.js";
-import db, { closePool } from "../../../db/db.js"
-import { createAssetViaApi } from "../../helpers/assets.js";
+import db, { closePool } from "#db/db.js";
 import { login } from "../../helpers/auth.js";
-import {cleanupTestAssets} from "#__tests__/helpers/cleanup.js";
-import supertest from "supertest";
+import {
+    createAssetViaApi,
+    DEFAULT_ASSETS_BASE as BASE,
+} from "../../helpers/assets.js";
+import { cleanupTestAssets } from "../../helpers/cleanup.js";
+
+// ✔️ In plaats van lokale interfaces → importeer ze uit models
+import {
+    AssetListItemDto,
+    AssetListResponseDto,
+    AssetDetailResponseDto,
+} from "#models/asset.js";
 
 
-const BASE = "/api/assets";
-const API = () => supertest(app);
+type CreatedAsset = Awaited<ReturnType<typeof createAssetViaApi>>;
 
-interface TestAsset {
-    id: number;
-    unique_symbol: string;
-    // voeg hier gerust extra velden toe indien nuttig (type, name, ...)
-}
-
-interface AssetListItem {
-    id: number;
-    unique_symbol: string;
-}
-
-interface AssetListResponse {
-    data?: AssetListItem[];
-    message?: string;
-}
+const API = () => request(app);
 
 describe("API /assets — GET", () => {
-    let equity: TestAsset;
-    let etf: TestAsset;
+    let equity: CreatedAsset;
+    let etf: CreatedAsset;
     let jwt: string;
 
     beforeAll(async () => {
         jwt = await login();
 
-        equity = (await createAssetViaApi(
+        equity = await createAssetViaApi(
             app,
             jwt,
             { type: "equity", name: `Alpha-${Date.now()}` },
             BASE,
-        )) as TestAsset;
+        );
 
-        etf = (await createAssetViaApi(
+        etf = await createAssetViaApi(
             app,
             jwt,
             { type: "ETF", name: `Beta-${Date.now()}` },
             BASE,
-        )) as TestAsset;
+        );
     });
 
     afterAll(async () => {
@@ -56,22 +51,26 @@ describe("API /assets — GET", () => {
     });
 
     it("GET /assets/:id — 200 detail", async () => {
-        const r = await API()
-            .get(`${BASE}/${equity.id}`)
-            .set("Authorization", `Bearer ${jwt}`)
-            .expect(200);
+        const res = await API()
+            .get(`${BASE}/${String(equity.id)}`)
+            .set("Authorization", `Bearer ${jwt}`);
 
-        expect(Number(r.body?.data?.id)).toBe(equity.id);
+        expect(res.status).toBe(200);
 
-        if (r.body?.data && Object.prototype.hasOwnProperty.call(r.body.data, "listings")) {
-            expect(Array.isArray(r.body.data.listings)).toBe(true);
+        const body = res.body as AssetDetailResponseDto;
+
+        expect(Number(body.data?.id)).toBe(equity.id);
+
+        // listings bestaat altijd maar defensief blijven we checken
+        if (body.data) {
+            expect(Array.isArray(body.data.listings)).toBe(true);
         }
     });
 
     it("GET /assets/:id — 400 ongeldige id", async () => {
         const res = await API()
             .get(`${BASE}/abc`)
-            .set("Authorization", `Bearer ${jwt}`)
+            .set("Authorization", `Bearer ${jwt}`);
 
         expect(res.status).toBe(400);
     });
@@ -81,17 +80,26 @@ describe("API /assets — GET", () => {
             .get(`${BASE}/99999999`)
             .set("Authorization", `Bearer ${jwt}`);
 
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(404);
     });
 
     it("GET /assets — filter type=EQuItY + search op unique_symbol(equity)", async () => {
-        const r = await API()
+        const res = await API()
             .get(BASE)
             .set("Authorization", `Bearer ${jwt}`)
-            .query({ type: "EQuItY", search: equity.unique_symbol, limit: 100, offset: 0 })
-            .expect(200);
+            .query({
+                type: "EQuItY",
+                search: equity.unique_symbol,
+                limit: 100,
+                offset: 0,
+            });
 
-        const ids = (r.body?.data ?? []).map((x: any) => Number(x.id));
+        expect(res.status).toBe(200);
+
+        const body = res.body as AssetListResponseDto;
+        const data: AssetListItemDto[] = body.data ?? [];
+        const ids = data.map((item) => Number(item.id));
+
         expect(ids).toContain(equity.id);
         expect(ids).not.toContain(etf.id);
     });
@@ -100,27 +108,31 @@ describe("API /assets — GET", () => {
         const res = await API()
             .get(BASE)
             .set("Authorization", `Bearer ${jwt}`)
-            .query({ type: "etf", search: etf.unique_symbol, limit: 100, offset: 0 })
+            .query({
+                type: "etf",
+                search: etf.unique_symbol,
+                limit: 100,
+                offset: 0,
+            });
 
-            expect(res).toBe(200);
+        expect(res.status).toBe(200);
 
-        interface AssetListItem { id: number; unique_symbol: string }
+        const body = res.body as AssetListResponseDto;
+        const data: AssetListItemDto[] = body.data ?? [];
 
-        const data = (res.body?.data ?? []) as AssetListItem[];
-        const ids = data.map((x) => x.id);
+        const ids = data.map((item) => Number(item.id));
 
         expect(ids).toContain(etf.id);
         expect(ids).not.toContain(equity.id);
     });
 
     it("GET /assets — 400 bij ongeldige type filter", async () => {
-        const  res = await API()
+        const res = await API()
             .get(BASE)
             .set("Authorization", `Bearer ${jwt}`)
             .query({ type: "NOT-A-TYPE" });
 
-        expect(res).toBe(400);
-
+        expect(res.status).toBe(400);
     });
 
     it("GET /assets — paginatie (limit/offset)", async () => {
@@ -135,8 +147,8 @@ describe("API /assets — GET", () => {
 
         expect(allRes.status).toBe(200);
 
-        const allBody: AssetListResponse = allRes.body;
-        const allData: AssetListItem[] = allBody.data ?? [];
+        const allBody = allRes.body as AssetListResponseDto;
+        const allData = allBody.data ?? [];
         const total = allData.length;
 
         const page1Res = await API()
@@ -152,24 +164,16 @@ describe("API /assets — GET", () => {
         expect(page1Res.status).toBe(200);
         expect(page2Res.status).toBe(200);
 
-        const page1Body: AssetListResponse = page1Res.body;
-        const page2Body: AssetListResponse = page2Res.body;
+        const page1Data = (page1Res.body as AssetListResponseDto).data ?? [];
+        const page2Data = (page2Res.body as AssetListResponseDto).data ?? [];
 
-        const page1Data: AssetListItem[] = page1Body.data ?? [];
-        const page2Data: AssetListItem[] = page2Body.data ?? [];
+        expect(page1Data.length).toBeLessThanOrEqual(2);
+        expect(page2Data.length).toBeLessThanOrEqual(2);
+        expect(page1Data.length + page2Data.length).toBeLessThanOrEqual(total);
 
-        const len1 = page1Data.length;
-        const len2 = page2Data.length;
-
-        expect(len1).toBeLessThanOrEqual(2);
-        expect(len2).toBeLessThanOrEqual(2);
-        expect(len1 + len2).toBeLessThanOrEqual(total);
-
-        const seen = [...page1Data, ...page2Data].map(
-            (item) => item.unique_symbol,
-        );
+        const seenSymbols = [...page1Data, ...page2Data].map((item) => item.unique_symbol);
         const created = [c1.unique_symbol, c2.unique_symbol, c3.unique_symbol];
 
-        expect(seen.some((s) => created.includes(s))).toBe(true);
+        expect(seenSymbols.some((sym) => created.includes(sym))).toBe(true);
     });
 });

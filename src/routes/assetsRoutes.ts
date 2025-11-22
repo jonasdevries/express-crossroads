@@ -3,132 +3,136 @@ import { Router, type Request, type Response } from "express";
 import { query } from "#db/db.js";
 import { getEnumLabels } from "#db/enums.js";
 import { requireAuth } from "#middleware/auth.js";
+import {
+    AssetRow,
+    AssetDetailDto,
+    AssetPostBodyDto,
+} from "#models/asset.js";
 
 const router = Router();
-
-interface AssetRow {
-    id: number;
-    type: string;
-    ticker: string | null;
-    name: string;
-    quote_ccy: string;
-    mic: string | null;
-    unique_symbol: string;
-}
-
-interface AssetWithListingsRow extends AssetRow {
-    listings: unknown; // of specifieker type als je listings modelleert
-}
-
-interface AssetPostBody {
-    type?: string;
-    ticker?: string;
-    name?: string;
-    quote_ccy?: string;
-    mic?: string;
-    unique_symbol?: string;
-}
 
 /**
  * 📘 GET /assets?search=&ticker=&type=&limit=20&offset=0
  */
-router.get("/", async (req: Request, res: Response) => {
-    const search =
-        typeof req.query.search === "string" ? req.query.search.trim() : "";
-    const ticker =
-        typeof req.query.ticker === "string"
-            ? req.query.ticker.trim().toUpperCase()
-            : "";
-    const typeQ =
-        typeof req.query.type === "string" ? req.query.type.trim() : "";
+router.get(
+    "/",
+    async (req: Request, res: Response): Promise<Response> => {
+        const search =
+            typeof req.query.search === "string" ? req.query.search.trim() : "";
+        const ticker =
+            typeof req.query.ticker === "string"
+                ? req.query.ticker.trim().toUpperCase()
+                : "";
+        const typeQ =
+            typeof req.query.type === "string" ? req.query.type.trim() : "";
 
-    // Limit/offset robuust parsen en clampen
-    const rawLimit = req.query.limit;
-    const rawOffset = req.query.offset;
+        // Limit/offset robuust parsen en clampen
+        const rawLimit = req.query.limit;
+        const rawOffset = req.query.offset;
 
-    let limit = 20;
-    let offset = 0;
+        let limit = 20;
+        let offset = 0;
 
-    if (typeof rawLimit === "string") {
-        const n = Number(rawLimit);
-        if (Number.isFinite(n)) {
-            limit = n;
+        if (typeof rawLimit === "string") {
+            const n = Number(rawLimit);
+            if (Number.isFinite(n)) {
+                limit = n;
+            }
         }
-    }
 
-    if (typeof rawOffset === "string") {
-        const n = Number(rawOffset);
-        if (Number.isFinite(n)) {
-            offset = n;
+        if (typeof rawOffset === "string") {
+            const n = Number(rawOffset);
+            if (Number.isFinite(n)) {
+                offset = n;
+            }
         }
-    }
 
-    limit = Math.min(100, Math.max(1, limit));
-    offset = Math.max(0, offset);
+        limit = Math.min(100, Math.max(1, limit));
+        offset = Math.max(0, offset);
 
-    const where: string[] = [];
-    const params: unknown[] = [];
-    const $ = (i: number) => `$${String(i)}`;
+        const where: string[] = [];
+        const params: unknown[] = [];
+        const $ = (i: number) => `$${String(i)}`;
 
-    // Vrije zoekterm over meerdere kolommen
-    if (search) {
-        const i = params.push(`%${search}%`);
-        where.push(
-            `(a.ticker ILIKE ${$(i)} OR a.name ILIKE ${$(i)} OR a.unique_symbol ILIKE ${$(i)})`,
-        );
-    }
+        // Vrije zoekterm over meerdere kolommen
+        if (search) {
+            const i = params.push(`%${search}%`);
+            where.push(
+                `(a.ticker ILIKE ${$(i)} OR a.name ILIKE ${$(i)} OR a.unique_symbol ILIKE ${$(i)})`,
+            );
+        }
 
-    // Exacte ticker
-    if (ticker) {
-        const i = params.push(ticker);
-        where.push(`a.ticker = ${$(i)}`);
-    }
+        // Exacte ticker
+        if (ticker) {
+            const i = params.push(ticker);
+            where.push(`a.ticker = ${$(i)}`);
+        }
 
-    // Enum type (valideren tegen Postgres enum)
-    if (typeQ) {
-        const allowed = await getEnumLabels("asset_type"); // string[]
-        const match = allowed.find(
-            (v) => v.toLowerCase() === typeQ.toLowerCase(),
-        );
+        // Enum type (valideren tegen Postgres enum)
+        if (typeQ) {
+            try {
+                const allowed = await getEnumLabels("asset_type"); // string[]
+                const match = allowed.find(
+                    (v) => v.toLowerCase() === typeQ.toLowerCase(),
+                );
 
-        if (!match) {
-            return res.status(400).json({
-                error: "Validatiefout: ongeldige asset type",
-                allowed,
-                received: typeQ,
+                if (!match) {
+                    return res.status(400).json({
+                        error: "Validatiefout: ongeldige asset type",
+                        allowed,
+                        received: typeQ,
+                    });
+                }
+
+                const i = params.push(match);
+                where.push(`a.type = ${$(i)}::public.asset_type`);
+            } catch (err) {
+                if (process.env.DEBUG_HTTP === "1") {
+                    console.error("[assets:get:type:error]", err);
+                }
+                return res.status(500).json({
+                    error: "Interne fout bij ophalen van toegestane asset types",
+                });
+            }
+        }
+
+        const limitIndex = params.push(limit);
+        const offsetIndex = params.push(offset);
+
+        const sql = `
+            SELECT a.id, a.type, a.ticker, a.name, a.quote_ccy, a.mic, a.unique_symbol
+            FROM public.assets a
+                ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+            ORDER BY a.name ASC
+            LIMIT $${limitIndex} OFFSET $${offsetIndex}
+        `;
+
+        try {
+            const { rows } = await query<AssetRow>(sql, params);
+            return res.json({
+                message: "Assets succesvol opgehaald",
+                data: rows,
+            });
+        } catch (err) {
+            if (process.env.DEBUG_HTTP === "1") {
+                console.error("[assets:get:error]", err);
+            }
+            return res.status(500).json({
+                error: "Interne fout in GET /assets",
             });
         }
-
-        const i = params.push(match);
-        where.push(`a.type = ${$(i)}::public.asset_type`);
-    }
-
-    const limitIndex = params.push(limit);
-    const offsetIndex = params.push(offset);
-
-    const sql = `
-    SELECT a.id, a.type, a.ticker, a.name, a.quote_ccy, a.mic, a.unique_symbol
-      FROM public.assets a
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-     ORDER BY a.name ASC
-     LIMIT $${limitIndex} OFFSET $${offsetIndex}
-  `;
-
-    try {
-        const { rows } = await query<AssetRow>(sql, params);
-        return res.json({ message: "Assets succesvol opgehaald", data: rows });
-    } catch (err) {
-        console.error("[assets:get:error]", err);
-        return res.status(500).json({ ok: false, error: "internal" });
-    }
-});
+    },
+);
 
 /**
  * 📗 GET /assets/:id  (+listings)
  */
 router.get(
     "/:id",
-    async (req: Request<{ id: string }>, res: Response) => {
+    async (
+        req: Request<{ id: string }>,
+        res: Response,
+    ): Promise<Response> => {
         const { id } = req.params;
 
         if (!/^\d+$/.test(id)) {
@@ -138,40 +142,40 @@ router.get(
         }
 
         const sql = `
-      SELECT a.*,
-             COALESCE(
-               (SELECT json_agg(li ORDER BY li.mic)
-                FROM public.listings li
-                WHERE li.asset_id = a.id),
-               '[]'::json
-             ) AS listings
-      FROM public.assets a
-      WHERE a.id = $1
-    `;
+            SELECT a.*,
+                   COALESCE(
+                           (SELECT json_agg(li ORDER BY li.mic)
+                            FROM public.listings li
+                            WHERE li.asset_id = a.id),
+                           '[]'::json
+                   ) AS listings
+            FROM public.assets a
+            WHERE a.id = $1
+        `;
 
-        const { rows } = await query<AssetWithListingsRow>(sql, [id]);
+        try {
+            const { rows } = await query<AssetDetailDto>(sql, [id]);
 
-        if (rows.length === 0) {
-            return res
-                .status(404)
-                .json({ error: `Niet gevonden: asset met id=${id}` });
+            if (rows.length === 0) {
+                return res
+                    .status(404)
+                    .json({ error: `Niet gevonden: asset met id=${id}` });
+            }
+
+            return res.json({
+                message: "Asset succesvol opgehaald",
+                data: rows[0],
+            });
+        } catch (err) {
+            if (process.env.DEBUG_HTTP === "1") {
+                console.error("[assets:getById:error]", err);
+            }
+            return res.status(500).json({
+                error: "Interne fout in GET /assets/:id",
+            });
         }
-
-        return res.json({
-            message: "Asset succesvol opgehaald",
-            data: rows[0],
-        });
     },
 );
-
-interface AssetPostBody {
-    type?: string;
-    ticker?: string;
-    name?: string;
-    quote_ccy?: string;
-    mic?: string;
-    unique_symbol?: string;
-}
 
 /**
  * 📙 POST /assets
@@ -179,7 +183,10 @@ interface AssetPostBody {
 router.post(
     "/",
     requireAuth,
-    async (req: Request<unknown, unknown, AssetPostBody>, res: Response) => {
+    async (
+        req: Request<unknown, unknown, AssetPostBodyDto>,
+        res: Response,
+    ): Promise<Response> => {
         const { type, ticker, name, quote_ccy, mic, unique_symbol } = req.body;
 
         // normaliseer NIET vooraf; eerst raw valideren
@@ -220,21 +227,32 @@ router.post(
             });
         }
 
-        // Pas NA validatie normaliseren voor opslag (duidelijk andere variabelen)
-        const allowed = await getEnumLabels("asset_type");
-        const match = allowed.find(
-            (v) => v.toLowerCase() === rawType.toLowerCase(),
-        );
+        // Pas NA validatie normaliseren voor opslag
+        let dbType: string;
+        try {
+            const allowed = await getEnumLabels("asset_type");
+            const match = allowed.find(
+                (v) => v.toLowerCase() === rawType.toLowerCase(),
+            );
 
-        if (!match) {
-            return res.status(400).json({
-                error: "Validatiefout: ongeldige asset type",
-                allowed,
-                received: rawType,
+            if (!match) {
+                return res.status(400).json({
+                    error: "Validatiefout: ongeldige asset type",
+                    allowed,
+                    received: rawType,
+                });
+            }
+
+            dbType = match; // exact enum label uit DB
+        } catch (err) {
+            if (process.env.DEBUG_HTTP === "1") {
+                console.error("[assets:post:type:error]", err);
+            }
+            return res.status(500).json({
+                error: "Interne fout bij ophalen van toegestane asset types",
             });
         }
 
-        const dbType = match; // exact enum label uit DB
         const dbName = rawName;
         const dbTicker = rawTicker ? rawTicker.toUpperCase() : null;
         const dbMic = rawMic ? rawMic.toUpperCase() : null;
@@ -255,9 +273,17 @@ router.post(
                         RETURNING id, type, ticker, name, quote_ccy, mic, unique_symbol
                 `;
 
-            const params = [dbType, dbTicker, dbName, dbCcy, dbMic, dbUsym];
+            const params: unknown[] = [
+                dbType,
+                dbTicker,
+                dbName,
+                dbCcy,
+                dbMic,
+                dbUsym,
+            ];
 
             const { rows } = await query<AssetRow>(sql, params);
+
             if (dbUsym && rows.length === 0) {
                 return res.status(409).json({
                     error: "Conflict: asset met dit unique_symbol bestaat al",
@@ -268,7 +294,10 @@ router.post(
             return res
                 .status(201)
                 .set("Location", `/assets/${row.id}`)
-                .json({ ok: true, data: row });
+                .json({
+                    message: "Asset succesvol aangemaakt",
+                    data: row,
+                });
         } catch (error) {
             const err = error as {
                 code?: string;
@@ -308,12 +337,12 @@ router.post(
                 });
             }
 
-            const message = err.message ?? "Onbekende fout in POST /assets";
-            throw new Error(message);
+            return res.status(500).json({
+                error: "Interne fout in POST /assets",
+            });
         }
     },
 );
-
 
 /**
  * 📕 DELETE /assets/:id
@@ -321,7 +350,10 @@ router.post(
 router.delete(
     "/:id",
     requireAuth,
-    async (req: Request<{ id: string }>, res: Response) => {
+    async (
+        req: Request<{ id: string }>,
+        res: Response,
+    ): Promise<Response> => {
         const { id } = req.params;
 
         if (!/^\d+$/.test(id)) {
@@ -330,21 +362,30 @@ router.delete(
                 .json({ error: `Validatiefout: ongeldige asset id ${id}` });
         }
 
-        const del = await query<AssetRow>(
-            "DELETE FROM public.assets WHERE id = $1 RETURNING id, type, ticker, name, quote_ccy, mic, unique_symbol",
-            [id],
-        );
+        try {
+            const del = await query<AssetRow>(
+                "DELETE FROM public.assets WHERE id = $1 RETURNING id, type, ticker, name, quote_ccy, mic, unique_symbol",
+                [id],
+            );
 
-        if (del.rowCount === 0) {
-            return res
-                .status(404)
-                .json({ error: `Niet gevonden: asset met id=${id}` });
+            if (del.rowCount === 0) {
+                return res
+                    .status(404)
+                    .json({ error: `Niet gevonden: asset met id=${id}` });
+            }
+
+            return res.json({
+                message: `Asset met id=${id} is verwijderd`,
+                data: del.rows[0],
+            });
+        } catch (err) {
+            if (process.env.DEBUG_HTTP === "1") {
+                console.error("[assets:delete:error]", err);
+            }
+            return res.status(500).json({
+                error: "Interne fout in DELETE /assets/:id",
+            });
         }
-
-        return res.json({
-            message: `Asset met id=${id} is verwijderd`,
-            data: del.rows[0],
-        });
     },
 );
 
