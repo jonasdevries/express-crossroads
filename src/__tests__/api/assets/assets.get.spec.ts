@@ -50,6 +50,7 @@ describe("API /assets — GET", () => {
         await closePool();
     });
 
+
     it("GET /assets/:id — 200 detail", async () => {
         const res = await API()
             .get(`${BASE}/${String(equity.id)}`)

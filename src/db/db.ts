@@ -1,5 +1,8 @@
 // src/db/db.ts
 import { Pool, type PoolConfig, type QueryConfig, type QueryResult, type QueryResultRow } from "pg";
+import dotenv from "dotenv";
+import fs from "fs";
+
 
 // Hou de pool in module-scope bij (lazy init).
 let pool: null | Pool = null;
@@ -32,6 +35,15 @@ export async function closePool(): Promise<void> {
 export function getPool(): Pool {
   if (!pool) {
     pool = new Pool(buildConfig());
+
+    const dbUrl = process.env.DATABASE_URL ?? "undefined";
+    // Alleen loggen tijdens tests
+    if (process.env.NODE_ENV === "test") {
+        console.log("🔌 DB config (tests):", {
+            url: dbUrl,
+            env: process.env.NODE_ENV,
+        });
+    }
     pool.on("error", (err) => {
       console.error("[pg pool error]", err);
     });
@@ -88,17 +100,26 @@ function buildConfig(): PoolConfig {
   if (!url) {
     throw new Error("DATABASE_URL is undefined. Zet deze in je .env(.test) en zorg dat dotenv/config of tsx --env-file geladen wordt.");
   }
-
   const cfg: PoolConfig = { connectionString: url };
-
   const wantSsl = process.env.DATABASE_SSL === "1" || process.env.PGSSLMODE === "require";
-
   // pg verwacht boolean of tls opties; dit is de gangbare “Heroku-style” setting
   if (wantSsl) {
     cfg.ssl = { rejectUnauthorized: false };
   }
-
   return cfg;
 }
 
-export default { closePool, getPool, query };
+function resolveEnvFile(): string {
+    switch (process.env.NODE_ENV) {
+        case "test":
+            return ".env.test";
+        case "development":
+            return fs.existsSync(".env.local") ? ".env.local" : ".env";
+        default:
+            return ".env";
+    }
+}
+
+dotenv.config({ path: resolveEnvFile() });
+
+export default { closePool, query };
